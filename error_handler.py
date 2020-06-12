@@ -7,7 +7,12 @@ class BadRequestException(Exception):
         Exception.__init__(self, *args, **kwargs)
 
 class SystemFailureException(Exception):
-    """Class for UnauthorisedException"""
+    """Class for SystemFailureException"""
+    def __init__(self, *args, **kwargs):
+        Exception.__init__(self, *args, **kwargs)
+
+class BranchMismatchException(Exception):
+    """Class for BranchMismatchException"""
     def __init__(self, *args, **kwargs):
         Exception.__init__(self, *args, **kwargs)
 
@@ -52,6 +57,8 @@ def error_handler(f):
         try:
             return f(*args, **kwargs)
         except BadRequestException as err:
+            return exception_to_json_response(err, 400)
+        except BranchMismatchException as err:
             return exception_to_json_response(err, 400)
         except SystemFailureException as err:
             return exception_to_json_response(err, 500)

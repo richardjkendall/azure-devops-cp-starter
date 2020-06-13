@@ -20,9 +20,6 @@ ssm = boto3.client("ssm")
 s3 = boto3.client("s3")
 
 def check_environment():
-  if "BRANCH" not in os.environ:
-    logger.error("Missing BRANCH environment variable")
-    exit(-1)
   if "API_USERNAME" not in os.environ:
     logger.error("Missing API_USERNAME environment variable")
     exit(-1)
@@ -102,10 +99,10 @@ def clone_repo(repo, creds, branch, s3bucket, key):
   logger.info("Upload complete.")
   return s3_key
 
-@lambda_handler.route("/<string:project>", methods=["POST"])
+@lambda_handler.route("/<string:project>/<string:branch>", methods=["POST"])
 @error_handler
 @secured(username=os.environ["API_USERNAME"], password=api_password)
-def root(project):
+def root(project, branch):
   if not request.json:
     logger.info("Request not JSON")
     raise BadRequestException("Request should be JSON")
@@ -138,25 +135,25 @@ def root(project):
         refs = request.json["resource"]["refUpdates"]
         for ref in refs:
           logger.info("Ref name: {name}".format(name=ref["name"]))
-          if ref["name"] != "refs/heads/{b}".format(b=os.environ["BRANCH"]):
+          if ref["name"] != "refs/heads/{b}".format(b=branch):
             branch_match = False
         if not branch_match:
           logger.info("Branch does not match")
-          raise BranchMismatchException("Expecting branch '{b}'".format(b=os.environ["BRANCH"]))
+          raise BranchMismatchException("Expecting branch '{b}'".format(b=branch))
         else:
           logger.info("Request okay")
           # clone the repo
           s3_key = clone_repo(
             repo = url,
             creds = git_creds,
-            branch = os.environ["BRANCH"],
-            s3bucket=os.environ["S3_BUCKET"],
-            key=project
+            branch = branch,
+            s3bucket = os.environ["S3_BUCKET"],
+            key = project
           )
           d = {
             "eventType": request.json["eventType"],
             "remoteUrl": url,
-            "branch": os.environ["BRANCH"],
+            "branch": branch,
             "project": project,
             "status": "processed",
             "key": s3_key

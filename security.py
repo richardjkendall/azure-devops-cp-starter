@@ -17,7 +17,6 @@ def secured(username, password):
       """
       check for basic auth header
       """
-      logger.info("expected username: %s, expected password: %s" % (username, password))
       if "Authorization" in request.headers or "authorization" in request.headers:
         auth_header = request.headers["authorization"]
         if auth_header.startswith("Basic"):

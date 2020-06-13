@@ -1,8 +1,13 @@
-import logging, os
+import logging, os, shutil
 import boto3
 import tempfile
+from zipfile import ZipFile
+import uuid
+
 from flask_lambda import FlaskLambda
 from flask import request, jsonify, make_response, g
+from pygit2 import Repository, clone_repository, credentials, RemoteCallbacks
+
 
 from error_handler import error_handler, BadRequestException, SystemFailureException, BranchMismatchException
 from security import secured
@@ -11,7 +16,44 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] (%(
 lambda_handler = FlaskLambda(__name__)
 logger = logging.getLogger(__name__)
 
+ssm = boto3.client("ssm")
+s3 = boto3.client("s3")
 
+def check_environment():
+  if "BRANCH" not in os.environ:
+    logger.error("Missing BRANCH environment variable")
+    exit(-1)
+  if "API_USERNAME" not in os.environ:
+    logger.error("Missing API_USERNAME environment variable")
+    exit(-1)
+  if "PASS_PARAM" not in os.environ:
+    logger.error("Missing PASS_PARAM environment variable")
+    exit(-1)
+  if "AD_USERNAME" not in os.environ:
+    logger.error("Missing AD_USERNAME environment variable")
+    exit(-1)
+  if "AD_TOKEN_PARAM" not in os.environ:
+    logger.error("Missing AD_TOKEN_PARAM environment variable")
+    exit(-1)
+  if "S3_BUCKET" not in os.environ:
+    logger.error("Missing S3_BUCKET environment variable")
+    exit(-1)
+
+check_environment()
+
+# get the parameters
+# API password
+api_password_param = ssm.get_parameter(Name=os.environ["PASS_PARAM"], WithDecryption=True)
+api_password = api_password_param['Parameter']['Value']
+
+# AD token
+ad_token_param = ssm.get_parameter(Name=os.environ["AD_TOKEN_PARAM"], WithDecryption=True)
+ad_token = ad_token_param['Parameter']['Value']
+
+git_creds = credentials.UserPass(
+  username=os.environ["AD_USERNAME"],
+  password=ad_token
+)
 
 def success_json_response(payload):
   """
@@ -21,7 +63,7 @@ def success_json_response(payload):
   response.headers["Content-type"] = "application/json"
   return response
 
-def clone_to_s3(repo, creds, branch, s3bucket, key):
+def clone_repo(repo, creds, branch, s3bucket, key):
   """
   Clone git repo, zip and upload to S3
   """
@@ -29,12 +71,37 @@ def clone_to_s3(repo, creds, branch, s3bucket, key):
   tempfolder = tempfile.TemporaryDirectory()
   tempfolder_name = os.path.realpath(tempfolder.name)
   logger.info("Temp dir for clone: %s" % (tempfolder_name))
-  pass
-
+  clone_repository(
+    url=repo,
+    path=tempfolder_name,
+    checkout_branch=branch,
+    callbacks=RemoteCallbacks(credentials=creds)
+  )
+  logger.info("Cloned")
+  # zip it up
+  zipfile = tempfile.NamedTemporaryFile(suffix=".zip")
+  zipfile_name = os.path.realpath(zipfile.name)
+  logger.info("Zipping up to: %s" % (zipfile_name))
+  zf = ZipFile(zipfile_name, "w")
+  for dirname, subdirs, files in os.walk(tempfolder_name):
+    try:
+      subdirs.remove('.git')
+    except ValueError:
+      pass
+    zdirname = dirname[len(tempfolder_name)+1:]
+    zf.write(dirname, zdirname)
+    for filename in files:
+      zf.write(os.path.join(dirname, filename), os.path.join(zdirname, filename))
+  zf.close()
+  logger.info("Zip complete")
+  # upload to s3
+  s3_file_id = uuid.uuid4().hex
+  s3_key = "%s/%s.zip" % (key, s3_file_id)
+  s3.upload_file(zipfile_name, s3bucket, s3_key)
 
 @lambda_handler.route("/<string:project>", methods=["POST"])
 @error_handler
-@secured(username="test", password="test2")
+@secured(username=os.environ["API_USERNAME"], password=api_password)
 def root(project):
   if not request.json:
     logger.info("Request not JSON")
@@ -75,6 +142,14 @@ def root(project):
           raise BranchMismatchException("Expecting branch '{b}'".format(b=os.environ["BRANCH"]))
         else:
           logger.info("Request okay")
+          # clone the repo
+          local_folder = clone_repo(
+            repo = url,
+            creds = git_creds,
+            branch = os.environ["BRANCH"],
+            s3bucket=os.environ["S3_BUCKET"],
+            key=project
+          )
           d = {
             "eventType": request.json["eventType"],
             "remoteUrl": url,
@@ -85,7 +160,4 @@ def root(project):
           return success_json_response(d)
 
 if __name__ == '__main__':
-  if "BRANCH" not in os.environ:
-    logger.error("Missing BRANCH environment variable")
-    exit(-1)
   lambda_handler.run(debug=True, port=5001, host="0.0.0.0", threaded=True)

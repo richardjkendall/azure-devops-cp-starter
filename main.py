@@ -12,7 +12,7 @@ from pygit2 import Repository, clone_repository, credentials, RemoteCallbacks
 from error_handler import error_handler, BadRequestException, SystemFailureException, BranchMismatchException
 from security import secured
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] (%(threadName)-10s) %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] (%(threadName)-10s) %(message)s')
 lambda_handler = FlaskLambda(__name__)
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def success_json_response(payload):
   response.headers["Content-type"] = "application/json"
   return response
 
-def clone_repo(repo, creds, branch, s3bucket, key):
+def clone_repo(repo, creds, branch, commit, s3bucket, key):
   """
   Clone git repo, zip and upload to S3
   """
@@ -68,13 +68,16 @@ def clone_repo(repo, creds, branch, s3bucket, key):
   tempfolder = tempfile.TemporaryDirectory()
   tempfolder_name = os.path.realpath(tempfolder.name)
   logger.info("Temp dir for clone: %s" % (tempfolder_name))
-  clone_repository(
+  repo = clone_repository(
     url=repo,
     path=tempfolder_name,
     checkout_branch=branch,
     callbacks=RemoteCallbacks(credentials=creds)
   )
   logger.info("Cloned")
+  # switch to detached head for commit we want
+  repo.checkout_tree(repo.get(commit))
+  logger.info("Switched to deatched head for: %s" % (commit))
   # zip it up
   zipfile = tempfile.NamedTemporaryFile(suffix=".zip")
   zipfile_name = os.path.realpath(zipfile.name)
@@ -133,20 +136,25 @@ def root(project, branch):
         # check that the branch we care about is the one with the push
         branch_match = True
         refs = request.json["resource"]["refUpdates"]
+        hash_ref = ""
         for ref in refs:
           logger.info("Ref name: {name}".format(name=ref["name"]))
           if ref["name"] != "refs/heads/{b}".format(b=branch):
             branch_match = False
+          else:
+            hash_ref = ref["newObjectId"]
         if not branch_match:
           logger.info("Branch does not match")
           raise BranchMismatchException("Expecting branch '{b}'".format(b=branch))
         else:
           logger.info("Request okay")
+          logger.info("Git ref is: %s" % (hash_ref))
           # clone the repo
           s3_key = clone_repo(
             repo = url,
             creds = git_creds,
             branch = branch,
+            commit = hash_ref,
             s3bucket = os.environ["S3_BUCKET"],
             key = project
           )

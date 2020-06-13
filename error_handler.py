@@ -16,6 +16,11 @@ class BranchMismatchException(Exception):
     def __init__(self, *args, **kwargs):
         Exception.__init__(self, *args, **kwargs)
 
+class AccessDeniedException(Exception):
+    """Class for AccessDeniedException"""
+    def __init__(self, *args, **kwargs):
+        Exception.__init__(self, *args, **kwargs)
+
 def exception_to_json_response(exception, code):
     """
     Turns an exception into a JSON payload to respond to a service call
@@ -58,6 +63,8 @@ def error_handler(f):
             return f(*args, **kwargs)
         except BadRequestException as err:
             return exception_to_json_response(err, 400)
+        except AccessDeniedException as err:
+            return exception_to_json_response(err, 401)
         except BranchMismatchException as err:
             return exception_to_json_response(err, 400)
         except SystemFailureException as err:

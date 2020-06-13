@@ -1,13 +1,17 @@
 import logging, os
+import boto3
 import tempfile
 from flask_lambda import FlaskLambda
 from flask import request, jsonify, make_response, g
 
 from error_handler import error_handler, BadRequestException, SystemFailureException, BranchMismatchException
+from security import secured
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s [%(levelname)s] (%(threadName)-10s) %(message)s')
 lambda_handler = FlaskLambda(__name__)
 logger = logging.getLogger(__name__)
+
+
 
 def success_json_response(payload):
   """
@@ -17,7 +21,7 @@ def success_json_response(payload):
   response.headers["Content-type"] = "application/json"
   return response
 
-def clone_to_s3(repo, username, password, branch, s3bucket, key):
+def clone_to_s3(repo, creds, branch, s3bucket, key):
   """
   Clone git repo, zip and upload to S3
   """
@@ -30,6 +34,7 @@ def clone_to_s3(repo, username, password, branch, s3bucket, key):
 
 @lambda_handler.route("/<string:project>", methods=["POST"])
 @error_handler
+@secured(username="test", password="test2")
 def root(project):
   if not request.json:
     logger.info("Request not JSON")
@@ -41,6 +46,7 @@ def root(project):
     logger.info("Request eventType is not supported: {et}".format(et=request.json["eventType"]))
     d = {
       "eventType": request.json["eventType"],
+      "project": project,
       "status": "ignored"
     }
     return success_json_response(d)
@@ -73,6 +79,7 @@ def root(project):
             "eventType": request.json["eventType"],
             "remoteUrl": url,
             "branch": os.environ["BRANCH"],
+            "project": project,
             "status": "processed"
           }
           return success_json_response(d)

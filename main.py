@@ -95,9 +95,12 @@ def clone_repo(repo, creds, branch, s3bucket, key):
   zf.close()
   logger.info("Zip complete")
   # upload to s3
+  logger.info("Uploading to S3")
   s3_file_id = uuid.uuid4().hex
   s3_key = "%s/%s.zip" % (key, s3_file_id)
   s3.upload_file(zipfile_name, s3bucket, s3_key)
+  logger.info("Upload complete.")
+  return s3_key
 
 @lambda_handler.route("/<string:project>", methods=["POST"])
 @error_handler
@@ -143,7 +146,7 @@ def root(project):
         else:
           logger.info("Request okay")
           # clone the repo
-          local_folder = clone_repo(
+          s3_key = clone_repo(
             repo = url,
             creds = git_creds,
             branch = os.environ["BRANCH"],
@@ -155,7 +158,8 @@ def root(project):
             "remoteUrl": url,
             "branch": os.environ["BRANCH"],
             "project": project,
-            "status": "processed"
+            "status": "processed",
+            "key": s3_key
           }
           return success_json_response(d)
 

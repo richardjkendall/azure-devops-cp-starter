@@ -96,8 +96,10 @@ def clone_repo(repo, creds, branch, commit, s3bucket, key):
   logger.info("Zip complete")
   # upload to s3
   logger.info("Uploading to S3")
-  s3_file_id = uuid.uuid4().hex
+  s3_file_id = commit
   s3_key = "%s/%s.zip" % (key, s3_file_id)
+  s3.upload_file(zipfile_name, s3bucket, s3_key)
+  s3_key = "%s/latest.zip" % (key)
   s3.upload_file(zipfile_name, s3bucket, s3_key)
   logger.info("Upload complete.")
   return s3_key

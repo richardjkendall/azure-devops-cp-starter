@@ -17,6 +17,11 @@ Where
 * project = the subfolder in the S3 bucket where the zip file will be created
 * branch = should match the branch that you are sending events for
 
+The resulting zip file will be uploaded to the bucket twice
+
+1. at key ```<project>/latest.zip```
+2. at key ```<project>/<commit hash>.zip```
+
 ### Test locally
 
 You can test this locally by running running the script with the right environment variables set e.g.
